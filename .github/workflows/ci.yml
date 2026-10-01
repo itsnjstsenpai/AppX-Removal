@@ -2,11 +2,13 @@ name: CI
 
 on:
   push:
+    branches: ['**']
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   test-and-build:
@@ -62,3 +64,17 @@ jobs:
                   throw "Required UI control '$name' was not found in the WPF window."
               }
           }
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AppX-Removal
+          path: AppX-Removal.ps1
+          if-no-files-found: error
+
+      - name: Upload release asset
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: AppX-Removal.ps1
+          generate_release_notes: true
