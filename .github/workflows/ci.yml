@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    name: Test and build
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Pester
+        run: |
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          Install-Module -Name Pester -RequiredVersion 5.8.0 -Repository PSGallery -Scope CurrentUser -Force -SkipPublisherCheck -AllowClobber
+          Import-Module Pester -RequiredVersion 5.8.0 -Force
+
+      - name: Run tests
+        run: |
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          Import-Module Pester -RequiredVersion 5.8.0 -Force
+          Invoke-Pester -Path 'pester/*.Tests.ps1' -Output Detailed -CI
+        env:
+          TEMP: ${{ runner.temp }}
+
+      - name: Compile and validate app
+        run: |
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          ./Compile.ps1
+
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+              (Join-Path $PWD 'AppX-Removal.ps1'),
+              [ref]$tokens,
+              [ref]$parseErrors
+          ) | Out-Null
+          if ($parseErrors.Count -gt 0) {
+              $parseErrors | ForEach-Object { Write-Error $_.Message }
+              throw 'The generated app script has PowerShell syntax errors.'
+          }
+
+          Add-Type -AssemblyName PresentationFramework
+          [xml]$windowXml = Get-Content -Path 'xaml/MainWindow.xaml' -Raw
+          $xmlReader = [System.Xml.XmlNodeReader]::new($windowXml)
+          $window = [Windows.Markup.XamlReader]::Load($xmlReader)
+          $xmlReader.Close()
+
+          foreach ($name in @('SearchBox', 'PackageGrid', 'InventoryCount', 'StatusText', 'SelectedText', 'RefreshButton', 'RemoveButton')) {
+              if (-not $window.FindName($name)) {
+                  throw "Required UI control '$name' was not found in the WPF window."
+              }
+          }
